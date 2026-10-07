@@ -34,6 +34,9 @@ All notable changes to nanoMuse. The format follows [Keep a Changelog](https://k
 
 ### Desktop
 
+- **Smaller Linux packages.** The `.deb` builds with maximum compression, ships only the `en-US` and `zh-CN` Electron locales, carries fewer docs and test fixtures inside `dsh/node_modules`, and the bundled runtime is symbol-stripped. A `-min` package set without the runtime and a `nanomuse-server` tarball with the runtime on its own cover split installs.
+- **The `-min` Linux packages run the hands from `nanomuse` on PATH.** With no bundled runtime the desktop uses `NANOMUSE_PY` when set, else the first `nanomuse` on the login shell's PATH (`scripts/install-runtime-linux.sh` installs one); with neither, the hands stay off and the Computer use page says how to fix it.
+- **A low-memory profile for small machines.** At or below 4.5 GB of RAM the shell starts Chromium without a GPU process and with capped heaps and the dsh Host with a 768 MB heap and two libuv threads (`NANOMUSE_LOW_MEM=0` disables it, `=1` forces it).
 - **Coding agents page** under *Settings → Coding agents*, also opened from the *Coding agents* chip on a device card: this computer's Cursor, Codex and Claude Code chats first (version, how many run now, recent chats), the account's other computers after; open a chat to read it, send a message and watch the run stream with its tools, stop it. A computer with none of the three installed says so. The desktop now announces and answers the `coding.*` hub actions itself — a phone sees a computer with only the desktop app as a coding computer — with `coding.send` and `coding.stop` behind the same remote-control gate as `shell` and `files`.
 - **The other device's name in "… is working"** under its prompt, instead of a fixed word.
 - **The Cloud page is called *nanoMuse Cloud* everywhere** — in the settings sidebar and in every sentence that points to it; the *Upgrade* link left the usage card (nothing is sold).

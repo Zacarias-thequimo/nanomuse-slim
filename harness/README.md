@@ -145,10 +145,17 @@ for the hands):
 cd harness/dsh-nanomuse && pnpm install && pnpm build          # the bundle
 cd ../desktop && npm ci
 node scripts/prepare-dsh.mjs                                     # dsh + the bundle → dsh/ (npm, public registry, this platform's prebuilds)
-python ../../scripts/desktop-app/build-runtime.py --target harness/desktop/runtime   # optional: the hands
+python ../../scripts/desktop-app/build-runtime.py --target harness/desktop/runtime   # the hands; skip for a -min package
 npm start                                                        # or: npm run dist (installers under dist/)
 node scripts/smoke.mjs                                           # boots the staged harness once in Node mode
 ```
+
+Without the runtime step the Linux build is a `-min` package: the hands then run
+from `nanomuse` on PATH (`scripts/install-runtime-linux.sh` sets that up, or
+unpack `nanomuse-server-<v>-linux-x64.tar.gz`). `NANOMUSE_LOW_MEM=1` forces the
+small-machine profile (capped Chromium and Host heaps, two libuv threads) that
+machines with 4.5 GB of RAM or less get automatically. `harness/tauri/` is the
+in-progress second shell (system WebView instead of Electron, Linux first).
 
 `.github/workflows/desktop-app.yml` does the same per platform on every release tag
 and attaches the installers to the release (`SHA256SUMS-desktop.txt` beside them); a

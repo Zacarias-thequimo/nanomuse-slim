@@ -74,7 +74,7 @@ exe = EXE(
     name="nanomuse",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=False,
     console=True,
     disable_windowed_traceback=False,
@@ -87,7 +87,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,
     upx=False,
     name="nanomuse",
 )

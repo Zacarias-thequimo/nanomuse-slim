@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { GLOW_HIDE_MS, GLOW_SETTLE_MS, type Leak, LeakLog, leakIsEvidence, leakIsReal, pointerAction, REARM_DELAYS_MS, staleInstance } from "./glow";
 import { defaultHelperPath, HELPER_NAME, MacHelper } from "./mac-helper";
@@ -90,6 +90,33 @@ if (process.platform === "darwin") {
   app.commandLine.appendSwitch("disable-features", "ThumbnailCapturerMac:capture_mode/sc_screenshot_manager,ScreenCaptureKitPickerScreen,ScreenCaptureKitStreamPickerSonoma");
 }
 
+/**
+ * Whether the small-machine profile applies: `NANOMUSE_LOW_MEM=1` forces it,
+ * `NANOMUSE_LOW_MEM=0` forces it off, otherwise any machine with at most 4.5 GB
+ * of RAM gets it. On a 2-CPU / 4 GB box the three processes (shell, Host, runtime)
+ * otherwise compete for memory and the window stutters during a hands run.
+ */
+function lowMemProfile(): boolean {
+  const forced = process.env.NANOMUSE_LOW_MEM;
+  if (forced === "1") return true;
+  if (forced === "0") return false;
+  try {
+    return totalmem() <= Math.round(4.5 * 1024 * 1024 * 1024);
+  } catch {
+    return false;
+  }
+}
+
+const LOW_MEM = lowMemProfile();
+if (LOW_MEM) {
+  // Keep Chromium's renderer and GPU child from growing past the box: no GPU
+  // process on machines that usually have none, and a capped renderer heap.
+  // Before ready.
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-software-rasterizer");
+  app.commandLine.appendSwitch("js-flags", "--max-old-space-size=384");
+}
+
 const logs: string[] = [];
 let hostStderr = "";
 let child: ChildProcess | null = null;
@@ -161,6 +188,27 @@ function shipped(): Shipped {
 function bundledRuntime(): string | undefined {
   const exe = join(resourcesDir(), "runtime", process.platform === "win32" ? "nanomuse.exe" : "nanomuse");
   return existsSync(exe) ? exe : undefined;
+}
+
+/**
+ * A `nanomuse` on PATH — what a -min package (no bundled runtime) uses for the
+ * hands: `pip install "nanomuse[hands]"`, scripts/install-runtime-linux.sh, or
+ * the nanomuse-server package. Probed with the login shell's PATH, so a pipx
+ * or venv install is found too.
+ */
+function systemRuntime(searchPath: string | undefined): string | undefined {
+  try {
+    const probe = process.platform === "win32" ? "where" : "which";
+    const out = spawnSync(probe, ["nanomuse"], {
+      encoding: "utf8",
+      timeout: 5000,
+      env: { ...process.env, ...(searchPath ? { PATH: searchPath } : {}) },
+    });
+    const first = (out.stdout || "").split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+    return first && existsSync(first) ? first : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -322,15 +370,24 @@ function startHost(): Promise<string> {
         Object.assign(env, proxied);
         hostProxy = proxied.HTTPS_PROXY ?? "";
         if (hostProxy) log(`proxy: providers through ${maskProxyUrl(hostProxy)}; never for ${proxied.NO_PROXY}`);
-        const runtime = bundledRuntime();
+        const runtime = bundledRuntime() ?? systemRuntime(env.PATH);
+        if (runtime) log(`runtime: ${bundledRuntime() ? "bundled" : "on PATH"} (${runtime})`);
         if (!env.NANOMUSE_PY && runtime) env.NANOMUSE_PY = runtime;
+        // Cap the Host's V8 heap on small machines: dsh holds the chats, rooms and
+        // trajectory in this process, and the default heap lets it grow past 2 GB
+        // before a major GC — on 4 GB that GC pause freezes the window.
+        if (LOW_MEM && !env.NODE_OPTIONS) {
+          env.NODE_OPTIONS = "--max-old-space-size=768";
+          env.UV_THREADPOOL_SIZE = env.UV_THREADPOOL_SIZE ?? "2";
+          log("low-mem: Host heap capped at 768 MB, libuv threads at 2 (NANOMUSE_LOW_MEM=0 disables)");
+        }
         // Loud when the hands have nothing to run: a packaged build without its runtime, or
         // NANOMUSE_PY (from the login shell) pointing at a file that is not there. The
         // Computer-use page shows the same with the fix; this is for the log people send in.
         if (env.NANOMUSE_PY && !existsSync(env.NANOMUSE_PY)) {
           log(`runtime: NANOMUSE_PY=${env.NANOMUSE_PY} does not exist — the hands are off until it is fixed or unset`);
         } else if (!env.NANOMUSE_PY && app.isPackaged) {
-          log(`runtime: no bundled runtime at ${join(resourcesDir(), "runtime")} and NANOMUSE_PY is not set — the hands are off (rebuild with the runtime, or install nanomuse and set NANOMUSE_PY)`);
+          log(`runtime: no bundled runtime at ${join(resourcesDir(), "runtime")} and no nanomuse on PATH — the hands are off (install the full package, the nanomuse-server package, or pip install "nanomuse[hands]")`);
         }
         const args = ["--expose-internals", bin, PROFILE, "--no-open", "--port", String(port)];
         log(`host: ${process.execPath} ${args.join(" ")} (DSH_HOME=${home}${env.NANOMUSE_PY ? `, NANOMUSE_PY=${env.NANOMUSE_PY}` : ""})`);

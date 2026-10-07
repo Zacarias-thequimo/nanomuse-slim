@@ -87,23 +87,39 @@ if (process.platform !== "win32") {
 }
 
 // ---------------------------------------------------------------- the trim
-// prebuilds for the other platforms, and source maps nobody opens in a packaged app
+// prebuilds for the other platforms, and source maps nobody opens in a packaged app.
+// Licence files stay: the harness is a dependency carried unmodified, with every
+// package's licence file inside it.
 const platformTag = `${process.platform}-${process.arch}`;
-const prebuilds = join(out, "node_modules", "node-pty", "prebuilds");
-if (existsSync(prebuilds)) {
+for (const prebuilds of [
+  join(out, "node_modules", "node-pty", "prebuilds"),
+  join(out, "node_modules", "koffi", "build"),
+]) {
+  if (!existsSync(prebuilds)) continue;
   for (const entry of readdirSync(prebuilds)) {
     if (entry !== platformTag) rmSync(join(prebuilds, entry), { recursive: true, force: true });
   }
 }
 let maps = 0;
+let docs = 0;
 const walk = (dir) => {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, entry.name);
     if (entry.isSymbolicLink()) continue;
-    if (entry.isDirectory()) walk(p);
-    else if (entry.name.endsWith(".map")) {
+    if (entry.isDirectory()) {
+      // test fixtures, examples and docs nobody reads in a packaged app
+      if (/^(__tests__|test|tests|docs|examples?|coverage)$/.test(entry.name)) {
+        rmSync(p, { recursive: true, force: true });
+        docs += 1;
+        continue;
+      }
+      walk(p);
+    } else if (entry.name.endsWith(".map")) {
       rmSync(p, { force: true });
       maps += 1;
+    } else if (/^(README|CHANGELOG|HISTORY)(\..*)?$/i.test(entry.name)) {
+      rmSync(p, { force: true });
+      docs += 1;
     }
   }
 };
@@ -116,8 +132,15 @@ rmSync(join(out, "node_modules", ".package-lock.json"), { force: true });
 // still has to exist. The app checks for the executable, not the folder.
 const runtimeDir = join(appDir, "runtime");
 if (!existsSync(runtimeDir)) {
-  mkdirSync(runtimeDir);
-  writeFileSync(join(runtimeDir, "README.txt"), "No runtime for the hands was built into this copy of nanoMuse Desktop; `nanomuse` on PATH or NANOMUSE_PY serves them.\n");
+  mkdirSync(runtimeDir, { recursive: true });
+}
+if (!existsSync(join(runtimeDir, process.platform === "win32" ? "nanomuse.exe" : "nanomuse"))) {
+  writeFileSync(
+    join(runtimeDir, "README.txt"),
+    "No runtime for the hands was built into this copy of nanoMuse Desktop (a -min package). " +
+      "The hands work when `nanomuse` is on PATH (pip install \"nanomuse[hands]\", " +
+      "scripts/install-runtime-linux.sh, or the nanomuse-server package) or NANOMUSE_PY points at it.\n",
+  );
 }
 
 // ---------------------------------------------------------------- the record
@@ -148,4 +171,4 @@ const record = {
   stagedAt: new Date().toISOString(),
 };
 writeFileSync(join(out, "dsh.json"), `${JSON.stringify(record, null, 2)}\n`);
-console.log(`staged ${out}: dsh ${record.dsh}, ${bundled.name} ${record.bundle}, ${files} files, ${record.megabytes} MB (${maps} source maps dropped)`);
+console.log(`staged ${out}: dsh ${record.dsh}, ${bundled.name} ${record.bundle}, ${files} files, ${record.megabytes} MB (${maps} source maps, ${docs} doc/test dirs dropped)`);

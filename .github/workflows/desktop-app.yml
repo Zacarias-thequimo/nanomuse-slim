@@ -34,6 +34,10 @@ on:
         description: "Attach the installers to this existing release (v0.1.30, say); empty builds only"
         required: false
         default: ""
+      runtime:
+        description: "Bundle the Python runtime for the hands (full), or ship -min Linux packages that use nanomuse on PATH (skip)"
+        required: false
+        default: "full"
 
 permissions:
   contents: write
@@ -99,7 +103,7 @@ jobs:
         shell: bash
         run: node scripts/prepare-dsh.mjs
       - name: The runtime for the hands
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && inputs.runtime != 'skip'
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -110,7 +114,7 @@ jobs:
           python -m pip install -e ".[hands]" pyinstaller
           python scripts/desktop-app/build-runtime.py --check --target harness/desktop/runtime
       - name: The runtime for the hands (Linux — inside Debian 11, so it runs on glibc 2.31 and newer)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && inputs.runtime != 'skip'
         shell: bash
         run: |
           docker run --rm -v "$PWD:/src" -w /src -e HOME=/tmp/home python:3.12-bullseye bash -euo pipefail -c '
@@ -161,6 +165,23 @@ jobs:
             Windows) node scripts/smoke.mjs --app dist/win-unpacked ;;
             *) node scripts/smoke.mjs --app dist/linux-unpacked ;;
           esac
+      - name: Name the -min Linux packages (no bundled runtime inside)
+        if: runner.os == 'Linux' && inputs.runtime == 'skip'
+        shell: bash
+        working-directory: harness/desktop
+        run: |
+          for f in dist/nanoMuse-Desktop-*-linux-x64.{deb,AppImage,tar.gz}; do
+            [ -f "$f" ] || continue
+            mv "$f" "${f/linux-x64./linux-x64-min.}"
+          done
+          ls -la dist | grep -Ev "^total|builder-|\.blockmap|\.yml$" || true
+      - name: Pack the server tarball (the runtime on its own, for -min installs)
+        if: runner.os == 'Linux' && inputs.runtime != 'skip'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./harness/desktop/package.json').version")
+          tar -czf "harness/desktop/dist/nanomuse-server-$VERSION-linux-x64.tar.gz" -C harness/desktop/runtime .
+          ls -la harness/desktop/dist/nanomuse-server-*.tar.gz
       - name: What was built
         shell: bash
         working-directory: harness/desktop
@@ -172,6 +193,7 @@ jobs:
             harness/desktop/dist/*.AppImage
             harness/desktop/dist/*.deb
             harness/desktop/dist/*.tar.gz
+            harness/desktop/dist/nanomuse-server-*.tar.gz
             harness/desktop/dist/*.exe
             harness/desktop/dist/*.dmg
             harness/desktop/dist/*.zip

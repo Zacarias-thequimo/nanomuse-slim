@@ -12,7 +12,7 @@ runtime for the hands are inside.
 | --- | --- |
 | Windows | `nanoMuse-Desktop-<version>-win-x64.exe` (NSIS; no certificate, so SmartScreen asks for *Run anyway*) |
 | macOS | `nanoMuse-Desktop-<version>-mac-arm64.dmg` / `-mac-x64.dmg` (and `.zip`); ad-hoc signed unless a release was signed and notarized, then *Open Anyway* once in System Settings → Privacy & Security |
-| Linux | `nanoMuse-Desktop-<version>-linux-x64.deb` (preferred) / `.AppImage` / `.tar.gz` — see [Linux notes](#linux-notes) |
+| Linux | `nanoMuse-Desktop-<version>-linux-x64.deb` (preferred) / `.AppImage` / `.tar.gz` — see [Linux notes](#linux-notes). A `-min` set without the bundled runtime (`-min.deb`, `-min.AppImage`, `-min.tar.gz`) and a `nanomuse-server-<version>-linux-x64.tar.gz` with the runtime on its own cover small machines and split installs. |
 
 Every release carries them (`.github/workflows/desktop-app.yml`; `SHA256SUMS-desktop.txt`
 beside them). The code is under [`harness/`](../harness/): the bundle of plugins in
@@ -360,6 +360,9 @@ helper, on the pre-0.1.38 path.
 
 ## Linux notes
 
+- **Full or `-min`.** The full `.deb` carries the Python runtime for the hands inside (about 60-80 MB of the download). The `-min` packages leave it out and the hands run from `nanomuse` on PATH instead: `pip install "nanomuse[hands]"`, `scripts/install-runtime-linux.sh`, or the `nanomuse-server-<version>-linux-x64.tar.gz` unpacked next to it. `NANOMUSE_PY` pointing at a `nanomuse` executable wins over both. Without any of the three the hands stay off and Settings → Computer use says how to fix it.
+- **Small machines (2 CPUs, 4 GB).** At or below 4.5 GB of RAM the shell applies a low-memory profile on its own (`NANOMUSE_LOW_MEM=0` disables it, `=1` forces it): Chromium runs without a GPU process and with a 384 MB renderer heap, the dsh Host starts with `--max-old-space-size=768` and two libuv threads. Prefer the `-min` package there and keep one chat at a time; the runtime's PyInstaller build is the other large resident and is not capped.
+- **A Tauri shell is in progress** (`harness/tauri/`, Linux first): the same staged `dsh/` and the same runtime story, with the system's WebKitGTK instead of bundled Chromium. Not packaged yet; the Electron `.deb` above stays the supported one.
 - **The `.deb` is the one to prefer** (Debian, Ubuntu and their derivatives): it installs
   `/opt/nanoMuse/nanomuse-desktop`, the icon set and the desktop entry, and the launcher
   finds it. `sudo apt install ./nanoMuse-Desktop-<version>-linux-x64.deb`.
