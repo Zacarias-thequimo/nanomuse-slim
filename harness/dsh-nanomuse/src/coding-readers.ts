@@ -21,7 +21,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, delimiter, join, resolve } from 'node:path'
+import { basename, delimiter, join, normalize, parse, resolve } from 'node:path'
 
 export type AgentId = 'cursor' | 'codex' | 'claude'
 
@@ -313,15 +313,33 @@ export function title(text: string, limit = 80): string {
  * `ssd-code-appagent-openmuse` → `/ssd/code/appagent/openmuse` when such a directory exists;
  * hyphenated names are tried as one component when the split does not exist. Falls back to
  * the slug itself.
+ *
+ * Windows slugs arrive with `\` separators and a sliced drive (`C:\a\b` → `:\a\b-…`):
+ * separators are normalized and the bare `:/…` is re-anchored on this drive, so the walk
+ * probes real directories and the answer comes back in native separators.
  */
 export function slugToPath(slug: string): string {
-  const parts = slug.split('-')
+  let rest = slug.replace(/\\/g, '/')
+  let anchor = '/'
+  if (process.platform === 'win32') {
+    if (/^:(?=\/)/.test(rest)) {
+      anchor = parse(process.cwd()).root.replace(/\\/g, '/')
+      rest = rest.slice(1)
+    } else {
+      const drive = /^[A-Za-z]:\//.exec(rest)
+      if (drive) {
+        anchor = drive[0]
+        rest = rest.slice(2)
+      }
+    }
+  }
+  const parts = rest.replace(/^\/+/, '').split('-')
   let path = ''
   let i = 0
   while (i < parts.length) {
     let chosen: [string, number] | undefined
     for (let j = parts.length; j > i; j--) {
-      const candidate = `${path}/${parts.slice(i, j).join('-')}`
+      const candidate = `${anchor}${path ? `${path}/` : ''}${parts.slice(i, j).join('-')}`
       let dir = false
       try {
         dir = existsSync(candidate) && statSync(candidate).isDirectory()
@@ -329,14 +347,14 @@ export function slugToPath(slug: string): string {
         dir = false
       }
       if (dir) {
-        chosen = [candidate, j]
+        chosen = [`${path ? `${path}/` : ''}${parts.slice(i, j).join('-')}`, j]
         break
       }
     }
-    if (!chosen) return path ? `${path}/${parts.slice(i).join('-')}` : slug
+    if (!chosen) return path ? normalize(`${anchor}${path}/${parts.slice(i).join('-')}`) : slug
     ;[path, i] = chosen
   }
-  return path || slug
+  return path ? normalize(`${anchor}${path}`) : slug
 }
 
 function status(updatedAt: number, openTurn: boolean, now = Date.now() / 1000): CodingSession['status'] {
